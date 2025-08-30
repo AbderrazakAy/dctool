@@ -1,6 +1,7 @@
 import requests
 import json
 import os
+from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import asyncio
@@ -8,7 +9,11 @@ import threading
 import time
 from typing import Dict, Optional
 
+load_dotenv()
+
 TOKEN = os.getenv("BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("BOT_TOKEN is not set in .env file. Please check your .env file.")
 
 # Store user sessions
 user_sessions: Dict[int, requests.Session] = {}
