@@ -292,6 +292,7 @@ async def auto_arena_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         while automation_tasks.get(user_id, {}).get('arena', False):
             try:
+                # Perform arena fight
                 response = session.post(arena_url, data=arena_data, timeout=30)
                 result = response.text
                 
@@ -302,24 +303,49 @@ async def auto_arena_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 try:
                     result_json = json.loads(result)
                     if result_json.get("success") is True:
-                        try:
-                            session.post(arena_url, data=arena_win_data, timeout=10)
-                        except:
-                            pass
+                        # Retry arena-win API call until success or max attempts
+                        max_retries = 3
+                        retry_delay = 2  # seconds
+                        win_success = False
+                        for attempt in range(max_retries):
+                            try:
+                                win_response = session.post(arena_url, data=arena_win_data, timeout=10)
+                                win_result = win_response.text
+                                try:
+                                    win_json = json.loads(win_result)
+                                    if win_json.get("success") is True:
+                                        send_message_safe(user_id, "🏆 Arena fight won and reward claimed!")
+                                        win_success = True
+                                        break
+                                    else:
+                                        send_message_safe(user_id, f"⚠️ Arena win response: {win_json.get('message', 'Unknown response')}")
+                                        break
+                                except json.JSONDecodeError:
+                                    send_message_safe(user_id, f"⚠️ Invalid arena-win response: {win_result}")
+                                    break
+                            except Exception as e:
+                                if attempt < max_retries - 1:
+                                    send_message_safe(user_id, f"⚠️ Arena-win attempt {attempt + 1} failed: {str(e)}. Retrying...")
+                                    time.sleep(retry_delay)
+                                else:
+                                    send_message_safe(user_id, f"❌ Failed to call arena-win after {max_retries} attempts: {str(e)}")
                         
-                        send_message_safe(user_id, "🏆 Arena fight won!")
+                        if not win_success:
+                            send_message_safe(user_id, "⚠️ Arena fight won, but reward claim failed. Continuing...")
                     else:
                         message = result_json.get('message', 'Arena fight completed')
                         send_message_safe(user_id, f"⚔️ {message}")
                 except json.JSONDecodeError:
                     send_message_safe(user_id, f"⚔️ Arena response: {result}")
                 
+                # Add delay between fights
                 time.sleep(3)
                 
             except Exception as e:
                 send_message_safe(user_id, f"❌ Arena error: {str(e)}")
                 break
         
+        # Clean up
         if user_id in automation_tasks:
             automation_tasks[user_id]['arena'] = False
             send_message_safe(user_id, "🔄 Arena fights stopped.")
