@@ -285,6 +285,46 @@ async def auto_arena_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     keyboard = get_main_menu_keyboard(is_logged_in(user_id))
     await query.edit_message_text(success_message, parse_mode='Markdown', reply_markup=keyboard)
     
+    def timer_worker(user_id, chat_id, message_id, duration=25*60):
+        """Update a Telegram message with a countdown timer."""
+        start_time = time.time()
+        end_time = start_time + duration
+        
+        while time.time() < end_time and automation_tasks.get(user_id, {}).get('arena', False):
+            remaining = int(end_time - time.time())
+            minutes, seconds = divmod(remaining, 60)
+            timer_message = f"""
+⏳ **Waiting for Stamina Recovery**
+
+⏰ Time remaining: {minutes:02d}:{seconds:02d}
+⚔️ Arena fights paused until stamina recovers.
+            """
+            
+            # Use asyncio.run_coroutine_threadsafe to safely update the message from a thread
+            asyncio.run_coroutine_threadsafe(
+                context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=timer_message,
+                    parse_mode='Markdown'
+                ),
+                main_loop
+            )
+            time.sleep(30)  # Update every 30 seconds
+        
+        # After timer completes, update with a resumption message
+        if automation_tasks.get(user_id, {}).get('arena', False):
+            asyncio.run_coroutine_threadsafe(
+                context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text="✅ Stamina recovered! Resuming arena fights...",
+                    parse_mode='Markdown',
+                    reply_markup=keyboard
+                ),
+                main_loop
+            )
+    
     def arena_worker():
         arena_url = "https://vinafull.com/packet"
         arena_data = {"mode": "arena-fight"}
@@ -297,6 +337,31 @@ async def auto_arena_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 result = response.text
                 
                 if check_arena_stamina(result):
+                    # Start the timer when stamina is depleted
+                    timer_message = """
+⏳ **Waiting for Stamina Recovery**
+
+⏰ Time remaining: 25:00
+⚔️ Arena fights paused until stamina recovers.
+                    """
+                    # Send initial timer message and get its ID
+                    message = asyncio.run_coroutine_threadsafe(
+                        context.bot.send_message(
+                            chat_id=query.message.chat_id,
+                            text=timer_message,
+                            parse_mode='Markdown'
+                        ),
+                        main_loop
+                    ).result()
+                    
+                    # Start the timer worker in a separate thread
+                    threading.Thread(
+                        target=timer_worker,
+                        args=(user_id, query.message.chat_id, message.message_id),
+                        daemon=True
+                    ).start()
+                    
+                    # Wait for stamina recovery
                     wait_for_stamina(user_id)
                     continue
                 
