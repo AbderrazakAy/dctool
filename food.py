@@ -87,7 +87,7 @@ def run_bot():
                     try:
                         response_data = response.json()
                         if response_data.get('success', False):
-                            food_gained = 45000
+                            food_gained = 50000
                             total_food += food_gained
                             print(f"✅ Success! Transferred food.")
                             print(f"🍲 This request: +{food_gained:,} food | Total: {total_food:,}")
@@ -100,7 +100,7 @@ def run_bot():
                             break
                     except:
                         # If response isn't JSON, assume success if status is 200
-                        food_gained = 45000
+                        food_gained = 50000
                         total_food += food_gained
                         print("✅ Success (non-JSON response)!")
                         print(f"🍲 This request: +{food_gained:,} food | Total: {total_food:,}")
@@ -147,7 +147,7 @@ def run_bot_with_minimal_delay(delay_ms=10):
                     try:
                         response_data = response.json()
                         if response_data.get('success', False):
-                            food_gained = 45000
+                            food_gained = 50000
                             total_food += food_gained
                             print(f"✅ Success! Transferred food.")
                             print(f"🍲 This request: +{food_gained:,} food | Total: {total_food:,}")
@@ -161,7 +161,7 @@ def run_bot_with_minimal_delay(delay_ms=10):
                             break
                     except:
                         # If response isn't JSON, assume success if status is 200
-                        food_gained = 45000
+                        food_gained = 50000
                         total_food += food_gained
                         print("✅ Success (non-JSON response)!")
                         print(f"🍲 This request: +{food_gained:,} food | Total: {total_food:,}")
