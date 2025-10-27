@@ -1,1 +1,1 @@
-worker: python TBOT.py
+worker: python gold_bot.py
