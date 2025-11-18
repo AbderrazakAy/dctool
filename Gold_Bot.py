@@ -81,7 +81,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/claim <code>` - Start claiming gold/XP\n"
         "• `/stop` - Stop claiming\n"
         "• `/stats` - View your stats\n\n"
-        "Example: `/claim a4d130ef2e2e035b3561d61362116a99`",
+        "Example: `/claim a4d130ef2e2e035b3561d61362116a98`",
         parse_mode='Markdown'
     )
 
