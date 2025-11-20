@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-BOT_TOKEN = "8211838996:AAFRegUpOsZhvXd2TGXjWPxvIvHd-mecD1I"
+BOT_TOKEN = "8376059118:AAGPH_mO_Ftg6CBis8ZJjbKxMEhqpv5yVHM"
 
 BASE = "https://nullzereptool.com"
 LOGIN_URL = f"{BASE}/login"
