@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """
-telegram_gold_xp_bot.py
+telegram_multi_bot.py
 
-Telegram bot for claiming gold/XP from nullzereptool
+Telegram bot for claiming gold/XP and food from game tools
 """
 
 import requests
-import time
 import asyncio
 from datetime import datetime
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 import logging
 
 # Setup logging
@@ -23,9 +22,18 @@ logger = logging.getLogger(__name__)
 # Bot configuration
 BOT_TOKEN = "8376059118:AAGPH_mO_Ftg6CBis8ZJjbKxMEhqpv5yVHM"
 
-BASE = "https://nullzereptool.com"
-LOGIN_URL = f"{BASE}/login"
-PACKET_URL = f"{BASE}/packet"
+# Gold/XP Bot Config
+GOLD_BASE = "https://nullzereptool.com"
+GOLD_LOGIN_URL = f"{GOLD_BASE}/login"
+GOLD_PACKET_URL = f"{GOLD_BASE}/packet"
+GOLD_CODE = "a4d130ef2e2e035b3561d61362116a99"
+
+# Food Bot Config
+FOOD_LOGIN_URL = "https://gamemodshub.com/game/dragoncity/Login"
+FOOD_PACKET_URL = "https://gamemodshub.com/game/dragoncity/script/packet"
+FOOD_CODE = "eaba7c88325347e0d8050ca295ec6948"
+FOOD_USER_ID = "3769452541155155277"
+FOOD_SESSION_ID = "34198510"
 
 COMMON_HEADERS = {
     "accept": "*/*",
@@ -51,39 +59,91 @@ user_stats = {}
 def now_ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def login_with_code(session: requests.Session, code: str, timeout: float = 15.0) -> bool:
-    """Login using the provided code"""
+# ============ GOLD/XP BOT FUNCTIONS ============
+def login_gold_bot(session: requests.Session, timeout: float = 15.0) -> bool:
+    """Login to gold/XP bot"""
     try:
         files = {
-            "code": (None, code),
+            "code": (None, GOLD_CODE),
             "loginType": (None, "user"),
         }
         headers = COMMON_HEADERS.copy()
-        response = session.post(LOGIN_URL, headers=headers, files=files, timeout=timeout)
+        response = session.post(GOLD_LOGIN_URL, headers=headers, files=files, timeout=timeout)
         return response.ok
     except Exception as e:
-        logger.error(f"Login error: {e}")
+        logger.error(f"Gold login error: {e}")
         return False
 
 def claim_gold_xp(session: requests.Session, timeout: float = 15.0) -> dict:
-    """Claim gold and XP, return result"""
+    """Claim gold and XP"""
     try:
         headers = COMMON_HEADERS.copy()
         headers["content-type"] = "application/x-www-form-urlencoded"
         data = {"mode": "claim-gold-xp"}
-        response = session.post(PACKET_URL, headers=headers, data=data, timeout=timeout)
+        response = session.post(GOLD_PACKET_URL, headers=headers, data=data, timeout=timeout)
         
         if response.ok:
-            try:
-                return {"success": True, "data": response.json()}
-            except:
-                return {"success": True, "data": None}
+            return {"success": True}
         else:
             return {"success": False, "status": response.status_code}
     except Exception as e:
         logger.error(f"Claim error: {e}")
         return {"success": False, "error": str(e)}
 
+# ============ FOOD BOT FUNCTIONS ============
+def login_food_bot(session: requests.Session, timeout: float = 10.0) -> bool:
+    """Login to food bot"""
+    try:
+        payload = {
+            "type": "login",
+            "code": FOOD_CODE
+        }
+        r = session.post(FOOD_LOGIN_URL, json=payload, timeout=timeout)
+        return r.status_code == 200
+    except Exception as e:
+        logger.error(f"Food login error: {e}")
+        return False
+
+def claim_food(session: requests.Session, timeout: float = 10.0) -> dict:
+    """Claim food"""
+    try:
+        data = {
+            "user_id": FOOD_USER_ID,
+            "session_id": FOOD_SESSION_ID,
+            "cmds": "auto-food-50k",
+            "shop_value": "1",
+            "tree_of_life_dragon_select": "0",
+            "type_edit_send_json": "undefined",
+            "claim_all_reward_value": "99",
+            "rescue_current_node_id": "0",
+            "breed_id": "0",
+            "hatch_eggs_to_habitat_id": "0",
+            "Hatch_id": "0",
+            "hatchery_uid": "0",
+            "map_dragons_id": "0",
+            "map_items_id": "0",
+            "breed_eggs_to_hatch_id": "0",
+            "breed_dragon_1": "0",
+            "breed_dragon_2": "0",
+            "breed_in_map_id": "0",
+            "farm_food_id": "0",
+            "farm_in_map_id": "0",
+            "values_itemsx": "1",
+            "map_change_name_dragon": "GameMods",
+            "map_level_up_dragon": "1",
+            "verify": "true"
+        }
+        r = session.post(FOOD_PACKET_URL, data=data, timeout=timeout)
+        
+        if "success" in r.text or r.status_code == 200:
+            return {"success": True}
+        else:
+            return {"success": False, "status": r.status_code}
+    except Exception as e:
+        logger.error(f"Food claim error: {e}")
+        return {"success": False, "error": str(e)}
+
+# ============ TELEGRAM BOT HANDLERS ============
 async def safe_send_message(context, chat_id, text, **kwargs):
     """Send message with error handling"""
     try:
@@ -94,45 +154,52 @@ async def safe_send_message(context, chat_id, text, **kwargs):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start command handler"""
     try:
+        keyboard = [
+            [InlineKeyboardButton("💰 Gold/XP Bot", callback_data='start_gold')],
+            [InlineKeyboardButton("🍖 Food Bot", callback_data='start_food')],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await update.message.reply_text(
-            "🤖 *Welcome to Gold/XP Claim Bot!*\n\n"
+            "🤖 *Welcome to Multi-Bot!*\n\n"
+            "Choose which bot you want to run:\n\n"
+            "💰 *Gold/XP Bot* - Claim gold and XP\n"
+            "🍖 *Food Bot* - Claim food for DragonCity\n\n"
             "Commands:\n"
-            "• `/claim <code>` - Start claiming gold/XP\n"
-            "• `/stop` - Stop claiming\n"
-            "• `/stats` - View your stats\n\n"
-            "Example: `/claim a4d130ef2e2e035b3561d61362116a98`",
-            parse_mode='Markdown'
+            "• `/start` - Show bot selection\n"
+            "• `/stop` - Stop active bot\n"
+            "• `/stats` - View your stats",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
         )
     except Exception as e:
         logger.error(f"Start command error: {e}")
 
-async def claim_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start claiming gold/XP"""
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle button presses"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    
+    # Check if already running
+    if user_id in user_sessions and user_sessions[user_id].get('active'):
+        await query.message.reply_text("⚠️ Bot is already running! Use /stop to stop it first.")
+        return
+    
+    if query.data == 'start_gold':
+        await start_gold_bot(query, context, user_id)
+    elif query.data == 'start_food':
+        await start_food_bot(query, context, user_id)
+
+async def start_gold_bot(query, context, user_id):
+    """Start Gold/XP bot"""
     try:
-        user_id = update.effective_user.id
-        
-        # Check if already running
-        if user_id in user_sessions and user_sessions[user_id].get('active'):
-            await update.message.reply_text("⚠️ Bot is already running! Use /stop to stop it first.")
-            return
-        
-        # Get code from command
-        if not context.args:
-            await update.message.reply_text(
-                "❌ Please provide your login code!\n\n"
-                "Usage: `/claim <your_code>`",
-                parse_mode='Markdown'
-            )
-            return
-        
-        code = context.args[0]
-        
-        # Initialize session
         session = requests.Session()
         user_sessions[user_id] = {
             'active': True,
             'session': session,
-            'code': code
+            'type': 'gold'
         }
         user_stats[user_id] = {
             'claims': 0,
@@ -141,34 +208,59 @@ async def claim_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'started': now_ts()
         }
         
-        await update.message.reply_text("🔐 Logging in...")
+        await query.message.reply_text("🔐 Logging in to Gold/XP bot...")
         
-        # Initial login
-        if not login_with_code(session, code):
-            await update.message.reply_text("❌ Login failed! Please check your code.")
+        if not login_gold_bot(session):
+            await query.message.reply_text("❌ Login failed!")
             user_sessions[user_id]['active'] = False
             return
         
-        await update.message.reply_text("✅ Login successful!\n🏆 Starting claims...")
+        await query.message.reply_text("✅ Login successful!\n🏆 Starting gold/XP claims...")
         
-        # Start claiming loop in background
-        context.application.create_task(claim_loop(update, context, user_id))
+        context.application.create_task(gold_claim_loop(query, context, user_id))
     except Exception as e:
-        logger.error(f"Claim command error: {e}")
-        await update.message.reply_text(f"❌ Error: {str(e)}")
+        logger.error(f"Gold bot start error: {e}")
+        await query.message.reply_text(f"❌ Error: {str(e)}")
 
-async def claim_loop(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
-    """Background task for claiming"""
+async def start_food_bot(query, context, user_id):
+    """Start Food bot"""
+    try:
+        session = requests.Session()
+        user_sessions[user_id] = {
+            'active': True,
+            'session': session,
+            'type': 'food'
+        }
+        user_stats[user_id] = {
+            'claims': 0,
+            'food': 0,
+            'started': now_ts()
+        }
+        
+        await query.message.reply_text("🔐 Logging in to Food bot...")
+        
+        if not login_food_bot(session):
+            await query.message.reply_text("❌ Login failed!")
+            user_sessions[user_id]['active'] = False
+            return
+        
+        await query.message.reply_text("✅ Login successful!\n🍖 Starting food claims...")
+        
+        context.application.create_task(food_claim_loop(query, context, user_id))
+    except Exception as e:
+        logger.error(f"Food bot start error: {e}")
+        await query.message.reply_text(f"❌ Error: {str(e)}")
+
+async def gold_claim_loop(query, context, user_id):
+    """Background task for Gold/XP claiming"""
     try:
         session_data = user_sessions.get(user_id)
         if not session_data:
             return
         
         session = session_data['session']
-        code = session_data['code']
         stats = user_stats[user_id]
-        
-        chat_id = update.effective_chat.id
+        chat_id = query.message.chat_id
         
         while user_sessions[user_id]['active']:
             try:
@@ -190,30 +282,73 @@ async def claim_loop(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
                         )
                 else:
                     # Re-login on failure
-                    if login_with_code(session, code):
+                    if login_gold_bot(session):
                         logger.info("Re-logged in successfully")
                     else:
                         await safe_send_message(
                             context,
                             chat_id,
-                            "❌ Re-login failed, retrying in 5s..."
+                            "❌ Re-login failed, retrying..."
                         )
                         await asyncio.sleep(5)
-                
-                # Small delay between claims
-                await asyncio.sleep(0.5)
             
             except Exception as e:
-                logger.error(f"Error in claim loop: {e}")
+                logger.error(f"Error in gold claim loop: {e}")
                 await asyncio.sleep(5)
         
-        # Cleanup
         session.close()
     except Exception as e:
-        logger.error(f"Fatal error in claim loop: {e}")
+        logger.error(f"Fatal error in gold claim loop: {e}")
+
+async def food_claim_loop(query, context, user_id):
+    """Background task for Food claiming"""
+    try:
+        session_data = user_sessions.get(user_id)
+        if not session_data:
+            return
+        
+        session = session_data['session']
+        stats = user_stats[user_id]
+        chat_id = query.message.chat_id
+        
+        while user_sessions[user_id]['active']:
+            try:
+                result = claim_food(session)
+                
+                if result['success']:
+                    stats['claims'] += 1
+                    stats['food'] += 50000
+                    
+                    # Report every 10 claims
+                    if stats['claims'] % 10 == 0:
+                        await safe_send_message(
+                            context,
+                            chat_id,
+                            f"✅ Claim #{stats['claims']} successful!\n"
+                            f"🍖 Total food: {stats['food']:,}"
+                        )
+                else:
+                    # Re-login on failure
+                    if login_food_bot(session):
+                        logger.info("Re-logged in successfully")
+                    else:
+                        await safe_send_message(
+                            context,
+                            chat_id,
+                            "❌ Re-login failed, retrying..."
+                        )
+                        await asyncio.sleep(3)
+            
+            except Exception as e:
+                logger.error(f"Error in food claim loop: {e}")
+                await asyncio.sleep(3)
+        
+        session.close()
+    except Exception as e:
+        logger.error(f"Fatal error in food claim loop: {e}")
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Stop claiming"""
+    """Stop active bot"""
     try:
         user_id = update.effective_user.id
         
@@ -221,18 +356,29 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Bot is not running!")
             return
         
+        bot_type = user_sessions[user_id].get('type', 'unknown')
         user_sessions[user_id]['active'] = False
         stats = user_stats.get(user_id, {})
         
-        await update.message.reply_text(
-            "🛑 *Bot Stopped!*\n\n"
-            f"📊 *Final Stats:*\n"
-            f"• Claims: {stats.get('claims', 0)}\n"
-            f"• Gold earned: {stats.get('gold', 0):,}\n"
-            f"• XP earned: {stats.get('xp', 0):,}\n"
-            f"• Started: {stats.get('started', 'N/A')}",
-            parse_mode='Markdown'
-        )
+        if bot_type == 'gold':
+            message = (
+                "🛑 *Gold/XP Bot Stopped!*\n\n"
+                f"📊 *Final Stats:*\n"
+                f"• Claims: {stats.get('claims', 0)}\n"
+                f"• Gold earned: {stats.get('gold', 0):,}\n"
+                f"• XP earned: {stats.get('xp', 0):,}\n"
+                f"• Started: {stats.get('started', 'N/A')}"
+            )
+        else:  # food
+            message = (
+                "🛑 *Food Bot Stopped!*\n\n"
+                f"📊 *Final Stats:*\n"
+                f"• Claims: {stats.get('claims', 0)}\n"
+                f"• Food earned: {stats.get('food', 0):,}\n"
+                f"• Started: {stats.get('started', 'N/A')}"
+            )
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Stop command error: {e}")
 
@@ -242,30 +388,42 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         
         if user_id not in user_stats:
-            await update.message.reply_text("❌ No stats available. Start claiming first with /claim")
+            await update.message.reply_text("❌ No stats available. Start a bot first with /start")
             return
         
         stats = user_stats[user_id]
-        active = user_sessions.get(user_id, {}).get('active', False)
+        session_data = user_sessions.get(user_id, {})
+        active = session_data.get('active', False)
+        bot_type = session_data.get('type', 'unknown')
+        
         status = "🟢 Active" if active else "🔴 Stopped"
         
-        await update.message.reply_text(
-            f"📊 *Your Stats*\n\n"
-            f"Status: {status}\n"
-            f"• Claims: {stats.get('claims', 0)}\n"
-            f"• Gold earned: {stats.get('gold', 0):,}\n"
-            f"• XP earned: {stats.get('xp', 0):,}\n"
-            f"• Started: {stats.get('started', 'N/A')}",
-            parse_mode='Markdown'
-        )
+        if bot_type == 'gold':
+            message = (
+                f"📊 *Gold/XP Bot Stats*\n\n"
+                f"Status: {status}\n"
+                f"• Claims: {stats.get('claims', 0)}\n"
+                f"• Gold earned: {stats.get('gold', 0):,}\n"
+                f"• XP earned: {stats.get('xp', 0):,}\n"
+                f"• Started: {stats.get('started', 'N/A')}"
+            )
+        else:  # food
+            message = (
+                f"📊 *Food Bot Stats*\n\n"
+                f"Status: {status}\n"
+                f"• Claims: {stats.get('claims', 0)}\n"
+                f"• Food earned: {stats.get('food', 0):,}\n"
+                f"• Started: {stats.get('started', 'N/A')}"
+            )
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Stats command error: {e}")
 
 def main():
     """Start the bot"""
-    print(f"[{now_ts()}] 🚀 Starting Telegram Bot...")
+    print(f"[{now_ts()}] 🚀 Starting Telegram Multi-Bot...")
     
-    # Create application with longer timeout
     application = (
         Application.builder()
         .token(BOT_TOKEN)
@@ -277,13 +435,12 @@ def main():
     
     # Add handlers
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("claim", claim_command))
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CallbackQueryHandler(button_callback))
     
     print(f"[{now_ts()}] ✅ Bot is running! Press Ctrl+C to stop.")
     
-    # Run bot
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
