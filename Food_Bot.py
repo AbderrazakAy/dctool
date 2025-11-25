@@ -139,9 +139,10 @@ class DragonCityBot:
             'running': self.is_running
         }
     
-    def start_claiming(self):
+    def start_claiming(self, chat_id):
         """Start the claiming process"""
         self.is_running = True
+        self.active_chat_id = chat_id
         
         if not self.login():
             return False
@@ -160,6 +161,7 @@ class DragonCityBot:
     def stop_claiming(self):
         """Stop the claiming process"""
         self.is_running = False
+        self.active_chat_id = None
 
 
 class TelegramBot:
@@ -169,7 +171,27 @@ class TelegramBot:
         self.dragon_bot = DragonCityBot(dragon_code)
         self.last_update_id = 0
         self.authorized_users = set()
+        self.active_chat_id = None
+        self.last_claim_count = 0
         
+    def send_stats_update(self):
+        """Send statistics update to active chat"""
+        if self.active_chat_id:
+            stats = self.dragon_bot.get_stats()
+            msg = f"""📊 *Update - 10 Claims Completed*
+
+✅ Total Claims: {stats['claims']:,}
+🍖 Total Food: {stats['food']:,}
+⏰ Time: {datetime.now().strftime('%H:%M:%S')}"""
+            self.send_message(self.active_chat_id, msg)
+    
+    def check_and_send_stats(self):
+        """Check if 10 new claims made and send stats"""
+        current_claims = self.dragon_bot.claim_count
+        if current_claims > 0 and current_claims % 10 == 0 and current_claims != self.last_claim_count:
+            self.send_stats_update()
+            self.last_claim_count = current_claims
+    
     def send_message(self, chat_id, text, parse_mode='Markdown'):
         """Send a message to a chat"""
         url = f"{self.base_url}/sendMessage"
@@ -226,8 +248,10 @@ Ready to start! 🚀"""
             if self.dragon_bot.is_running:
                 self.send_message(chat_id, "⚠️ Bot is already running!")
             else:
-                if self.dragon_bot.start_claiming():
-                    self.send_message(chat_id, "✅ *Started claiming food!*\n\nUse /stats to check progress")
+                if self.dragon_bot.start_claiming(chat_id):
+                    self.active_chat_id = chat_id
+                    self.last_claim_count = 0
+                    self.send_message(chat_id, "✅ *Started claiming food!*\n\nYou'll receive updates every 10 claims.\nUse /stats to check progress anytime.")
                 else:
                     self.send_message(chat_id, "❌ Failed to login. Check your code.")
         
@@ -238,9 +262,11 @@ Ready to start! 🚀"""
                 msg = f"""✅ *Bot Stopped*
 
 📊 Final Statistics:
-• Claims: {stats['claims']:,}
+• Total Claims: {stats['claims']:,}
 • Total Food: {stats['food']:,}"""
                 self.send_message(chat_id, msg)
+                self.active_chat_id = None
+                self.last_claim_count = 0
             else:
                 self.send_message(chat_id, "⚠️ Bot is not running")
         
@@ -268,7 +294,8 @@ Time: {datetime.now().strftime('%H:%M:%S')}"""
 • Auto claims 50k food continuously
 • No delays between claims
 • Auto re-login on errors
-• Real-time statistics"""
+• Updates sent every 10 claims
+• Real-time statistics on demand"""
             self.send_message(chat_id, help_msg)
         
         else:
@@ -281,6 +308,9 @@ Time: {datetime.now().strftime('%H:%M:%S')}"""
         
         while True:
             try:
+                # Check for stat updates
+                self.check_and_send_stats()
+                
                 updates = self.get_updates()
                 
                 if updates and updates.get('ok'):
