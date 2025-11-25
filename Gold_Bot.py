@@ -91,44 +91,18 @@ def claim_gold_xp(session: requests.Session, timeout: float = 15.0) -> dict:
         return {"success": False, "error": str(e)}
 
 # ============ FOOD BOT FUNCTIONS ============
-def login_food_bot(session: requests.Session, timeout: float = 15.0) -> bool:
-    """Login to food bot with retry logic"""
-    max_retries = 3
-    
-    for attempt in range(max_retries):
-        try:
-            payload = {
-                "type": "login",
-                "code": FOOD_CODE
-            }
-            
-            # Add headers similar to browser request
-            headers = {
-                "Content-Type": "application/json",
-                "Accept": "application/json, text/plain, */*",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-            
-            r = session.post(FOOD_LOGIN_URL, json=payload, headers=headers, timeout=timeout)
-            
-            logger.info(f"Food login attempt {attempt + 1}: Status={r.status_code}, Response={r.text[:200]}")
-            
-            # Check both status code AND response text
-            if r.status_code == 200:
-                logger.info(f"Food login successful on attempt {attempt + 1}")
-                return True
-            else:
-                logger.warning(f"Food login failed - Status: {r.status_code}")
-                
-        except Exception as e:
-            logger.error(f"Food login error on attempt {attempt + 1}: {e}")
-        
-        # Wait before retry
-        if attempt < max_retries - 1:
-            import time
-            time.sleep(2)
-    
-    return False
+def login_food_bot(session: requests.Session, timeout: float = 10.0) -> bool:
+    """Login to food bot"""
+    try:
+        payload = {
+            "type": "login",
+            "code": FOOD_CODE
+        }
+        r = session.post(FOOD_LOGIN_URL, json=payload, timeout=timeout)
+        return r.status_code == 200
+    except Exception as e:
+        logger.error(f"Food login error: {e}")
+        return False
 
 def claim_food(session: requests.Session, timeout: float = 10.0) -> dict:
     """Claim food"""
@@ -161,12 +135,10 @@ def claim_food(session: requests.Session, timeout: float = 10.0) -> dict:
         }
         r = session.post(FOOD_PACKET_URL, data=data, timeout=timeout)
         
-        # Check both success in text AND status code
-        if r.status_code == 200 or "success" in r.text.lower():
-            return {"success": True, "response": r.text[:100]}
+        if "success" in r.text or r.status_code == 200:
+            return {"success": True}
         else:
-            logger.warning(f"Food claim returned: {r.status_code} - {r.text[:200]}")
-            return {"success": False, "status": r.status_code, "response": r.text[:200]}
+            return {"success": False, "status": r.status_code}
     except Exception as e:
         logger.error(f"Food claim error: {e}")
         return {"success": False, "error": str(e)}
@@ -253,12 +225,9 @@ async def start_gold_bot(query, context, user_id):
 async def start_food_bot(query, context, user_id):
     """Start Food bot"""
     try:
-        # Create a fresh session
         session = requests.Session()
-        
-        # Set up session data BEFORE login attempt
         user_sessions[user_id] = {
-            'active': False,  # Set to False until login succeeds
+            'active': True,
             'session': session,
             'type': 'food'
         }
@@ -270,31 +239,16 @@ async def start_food_bot(query, context, user_id):
         
         await query.message.reply_text("🔐 Logging in to Food bot...")
         
-        # Try login with detailed logging
-        logger.info(f"Attempting food bot login for user {user_id}")
-        login_success = login_food_bot(session)
-        
-        if not login_success:
-            logger.error(f"Food bot login failed for user {user_id}")
-            await query.message.reply_text(
-                "❌ Login failed!\n\n"
-                "Please check:\n"
-                "• Code is valid\n"
-                "• User ID and Session ID are correct\n"
-                "• Try again in a few seconds"
-            )
+        if not login_food_bot(session):
+            await query.message.reply_text("❌ Login failed!")
             user_sessions[user_id]['active'] = False
             return
-        
-        # Login succeeded, now activate
-        user_sessions[user_id]['active'] = True
-        logger.info(f"Food bot login successful for user {user_id}")
         
         await query.message.reply_text("✅ Login successful!\n🍖 Starting food claims...")
         
         context.application.create_task(food_claim_loop(query, context, user_id))
     except Exception as e:
-        logger.error(f"Food bot start error: {e}", exc_info=True)
+        logger.error(f"Food bot start error: {e}")
         await query.message.reply_text(f"❌ Error: {str(e)}")
 
 async def gold_claim_loop(query, context, user_id):
@@ -466,28 +420,9 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Stats command error: {e}")
 
-async def clear_webhook():
-    """Clear any existing webhook to avoid conflicts"""
-    try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true"
-        response = requests.get(url, timeout=10)
-        if response.ok:
-            print(f"[{now_ts()}] ✅ Webhook cleared successfully")
-        else:
-            print(f"[{now_ts()}] ⚠️ Webhook clear response: {response.text}")
-    except Exception as e:
-        print(f"[{now_ts()}] ⚠️ Error clearing webhook: {e}")
-
 def main():
     """Start the bot"""
     print(f"[{now_ts()}] 🚀 Starting Telegram Multi-Bot...")
-    print(f"[{now_ts()}] 🔧 Clearing any existing webhooks...")
-    
-    # Clear webhook first
-    import asyncio as sync_asyncio
-    sync_asyncio.run(clear_webhook())
-    
-    print(f"[{now_ts()}] 📡 Initializing bot application...")
     
     application = (
         Application.builder()
@@ -505,14 +440,8 @@ def main():
     application.add_handler(CallbackQueryHandler(button_callback))
     
     print(f"[{now_ts()}] ✅ Bot is running! Press Ctrl+C to stop.")
-    print(f"[{now_ts()}] 💡 If you see 'Conflict' errors, stop ALL other bot instances first!")
     
-    try:
-        application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
-    except Exception as e:
-        print(f"[{now_ts()}] ❌ Bot error: {e}")
-        print(f"[{now_ts()}] 💡 Make sure no other instances are running!")
-        raise
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
