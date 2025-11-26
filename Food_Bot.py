@@ -13,6 +13,7 @@ class DragonCityBot:
         self.total_food_claimed = 0
         self.claim_count = 0
         self.is_running = False
+        self.session_start_time = None
         
         # Base headers
         self.headers = {
@@ -32,7 +33,7 @@ class DragonCityBot:
             'x-requested-with': 'XMLHttpRequest'
         }
     
-    def login(self):
+    def login(self, silent=False):
         """Login to Dragon City Tool"""
         url = 'https://gamemodshub.com/game/dragoncity/Login'
         payload = {
@@ -66,8 +67,8 @@ class DragonCityBot:
     def claim_food(self):
         """Claim 50k food"""
         if not self.user_id or not self.session_id:
-            if not self.login():
-                return False
+            if not self.login(silent=True):
+                return {"success": False, "relogin": True}
         
         url = 'https://gamemodshub.com/game/dragoncity/script/packet'
         
@@ -116,43 +117,59 @@ class DragonCityBot:
                 if 'success' in result or 'food' in str(result).lower():
                     self.claim_count += 1
                     self.total_food_claimed += 50000
-                    return True
+                    return {"success": True}
                 else:
-                    if self.login():
+                    if self.login(silent=True):
                         time.sleep(1)
                         return self.claim_food()
-                    return False
+                    return {"success": False, "relogin": True}
             else:
-                return False
+                return {"success": False, "relogin": True}
                 
         except Exception as e:
-            if self.login():
+            if self.login(silent=True):
                 time.sleep(1)
                 return self.claim_food()
-            return False
+            return {"success": False, "relogin": True}
     
     def get_stats(self):
         """Get current statistics"""
         return {
             'claims': self.claim_count,
             'food': self.total_food_claimed,
-            'running': self.is_running
+            'running': self.is_running,
+            'started': self.session_start_time
         }
     
-    def start_claiming(self, chat_id):
+    def start_claiming(self, chat_id, callback):
         """Start the claiming process"""
         self.is_running = True
         self.active_chat_id = chat_id
+        self.claim_count = 0
+        self.total_food_claimed = 0
+        self.session_start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         if not self.login():
             return False
         
         def claim_loop():
             while self.is_running:
-                success = self.claim_food()
-                if not success:
+                result = self.claim_food()
+                
+                if result.get("success"):
+                    # Report every 10 claims
+                    if self.claim_count % 10 == 0:
+                        callback()
+                elif result.get("relogin"):
+                    # Notify about re-login attempt
+                    callback(relogin=True)
                     time.sleep(2)
-                    self.login()
+                    self.login(silent=True)
+                else:
+                    time.sleep(2)
+                    self.login(silent=True)
+                
+                time.sleep(0.5)
         
         thread = Thread(target=claim_loop, daemon=True)
         thread.start()
@@ -172,25 +189,18 @@ class TelegramBot:
         self.last_update_id = 0
         self.authorized_users = set()
         self.active_chat_id = None
-        self.last_claim_count = 0
         
-    def send_stats_update(self):
+    def send_claim_update(self, relogin=False):
         """Send statistics update to active chat"""
         if self.active_chat_id:
-            stats = self.dragon_bot.get_stats()
-            msg = f"""📊 *Update - 10 Claims Completed*
-
-✅ Total Claims: {stats['claims']:,}
-🍖 Total Food: {stats['food']:,}
-⏰ Time: {datetime.now().strftime('%H:%M:%S')}"""
-            self.send_message(self.active_chat_id, msg)
-    
-    def check_and_send_stats(self):
-        """Check if 10 new claims made and send stats"""
-        current_claims = self.dragon_bot.claim_count
-        if current_claims > 0 and current_claims % 10 == 0 and current_claims != self.last_claim_count:
-            self.send_stats_update()
-            self.last_claim_count = current_claims
+            if relogin:
+                msg = "🔄 Re-logging in..."
+                self.send_message(self.active_chat_id, msg)
+            else:
+                stats = self.dragon_bot.get_stats()
+                msg = f"""✅ Claim #{stats['claims']} successful!
+🍖 Total food: {stats['food']:,}"""
+                self.send_message(self.active_chat_id, msg)
     
     def send_message(self, chat_id, text, parse_mode='Markdown'):
         """Send a message to a chat"""
@@ -232,57 +242,61 @@ class TelegramBot:
             return
         
         if command == '/start':
-            welcome_msg = """🐉 *Dragon City Auto Claimer Bot*
+            welcome_msg = """🤖 *Welcome to Dragon City Auto Claimer!*
 
-Welcome! Available commands:
-
-/startclaim - Start claiming food
-/stop - Stop claiming
-/stats - Show current statistics
-/help - Show this message
+Commands:
+• `/startclaim` - Start claiming food
+• `/stop` - Stop claiming
+• `/stats` - View your stats
+• `/help` - Show help
 
 Ready to start! 🚀"""
             self.send_message(chat_id, welcome_msg)
         
         elif command == '/startclaim':
             if self.dragon_bot.is_running:
-                self.send_message(chat_id, "⚠️ Bot is already running!")
+                self.send_message(chat_id, "⚠️ Bot is already running! Use /stop to stop it first.")
             else:
-                if self.dragon_bot.start_claiming(chat_id):
+                self.send_message(chat_id, "🔐 Logging in...")
+                
+                if self.dragon_bot.start_claiming(chat_id, self.send_claim_update):
                     self.active_chat_id = chat_id
-                    self.last_claim_count = 0
-                    self.send_message(chat_id, "✅ *Started claiming food!*\n\nYou'll receive updates every 10 claims.\nUse /stats to check progress anytime.")
+                    self.send_message(chat_id, "✅ Login successful!\n🏆 Starting claims...")
                 else:
-                    self.send_message(chat_id, "❌ Failed to login. Check your code.")
+                    self.send_message(chat_id, "❌ Login failed! Please check your code.")
         
         elif command == '/stop':
             if self.dragon_bot.is_running:
                 self.dragon_bot.stop_claiming()
                 stats = self.dragon_bot.get_stats()
-                msg = f"""✅ *Bot Stopped*
+                msg = f"""🛑 *Bot Stopped!*
 
-📊 Final Statistics:
-• Total Claims: {stats['claims']:,}
-• Total Food: {stats['food']:,}"""
+📊 *Final Stats:*
+• Claims: {stats['claims']}
+• Food earned: {stats['food']:,}
+• Started: {stats.get('started', 'N/A')}"""
                 self.send_message(chat_id, msg)
                 self.active_chat_id = None
-                self.last_claim_count = 0
             else:
                 self.send_message(chat_id, "⚠️ Bot is not running")
         
         elif command == '/stats':
             stats = self.dragon_bot.get_stats()
-            status = "🟢 Running" if stats['running'] else "🔴 Stopped"
-            msg = f"""📊 *Current Statistics*
+            if not stats.get('started'):
+                self.send_message(chat_id, "❌ No stats available. Start claiming first with /startclaim")
+                return
+            
+            status = "🟢 Active" if stats['running'] else "🔴 Stopped"
+            msg = f"""📊 *Your Stats*
 
 Status: {status}
-Claims: {stats['claims']:,}
-Total Food: {stats['food']:,}
-Time: {datetime.now().strftime('%H:%M:%S')}"""
+• Claims: {stats['claims']}
+• Food earned: {stats['food']:,}
+• Started: {stats.get('started', 'N/A')}"""
             self.send_message(chat_id, msg)
         
         elif command == '/help':
-            help_msg = """🐉 *Dragon City Bot Help*
+            help_msg = """🉐 *Dragon City Bot Help*
 
 *Commands:*
 /startclaim - Start auto-claiming
@@ -292,10 +306,9 @@ Time: {datetime.now().strftime('%H:%M:%S')}"""
 
 *Features:*
 • Auto claims 50k food continuously
-• No delays between claims
+• Updates every 10 claims
 • Auto re-login on errors
-• Updates sent every 10 claims
-• Real-time statistics on demand"""
+• Real-time statistics"""
             self.send_message(chat_id, help_msg)
         
         else:
@@ -308,9 +321,6 @@ Time: {datetime.now().strftime('%H:%M:%S')}"""
         
         while True:
             try:
-                # Check for stat updates
-                self.check_and_send_stats()
-                
                 updates = self.get_updates()
                 
                 if updates and updates.get('ok'):
