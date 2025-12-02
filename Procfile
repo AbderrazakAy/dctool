@@ -1,1 +1,1 @@
-worker: python Food_Bot.py
+worker: python Gold_Bot.py
