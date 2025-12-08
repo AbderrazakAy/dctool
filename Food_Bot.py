@@ -487,8 +487,8 @@ Mode: {mode_emoji} {mode_name}
 
 # Configuration
 if __name__ == "__main__":
-    TELEGRAM_TOKEN = "YOUR_TELEGRAM_TOKEN_HERE"
-    DRAGON_CODE = "YOUR_DRAGON_CODE_HERE"
+    TELEGRAM_TOKEN = "8376059118:AAGPH_mO_Ftg6CBis8ZJjbKxMEhqpv5yVHM"
+    DRAGON_CODE = "f10611dd2abad224232cbe4e00298adb"
     
     # Create and run bot
     bot = TelegramBot(TELEGRAM_TOKEN, DRAGON_CODE)
