@@ -16,7 +16,7 @@ class DragonCityBot:
         self.claim_count = 0
         self.is_running = False
         self.session_start_time = None
-        self.current_mode = None
+        self.current_mode = None  # 'gold' or 'food'
         
         # Base headers
         self.headers = {
@@ -45,7 +45,7 @@ class DragonCityBot:
         }
         
         try:
-            response = self.session.post(url, headers=self.headers, json=payload, timeout=15)
+            response = self.session.post(url, headers=self.headers, json=payload)
             
             if response.status_code == 200:
                 data = response.json()
@@ -60,21 +60,19 @@ class DragonCityBot:
                 if not self.session_id and 'DragonCityToolSession' in self.session.cookies:
                     self.session_id = self.session.cookies['DragonCityToolSession']
                 
-                if not silent:
-                    print(f"✅ Login successful - User ID: {self.user_id}")
                 return True
             else:
-                if not silent:
-                    print(f"❌ Login failed - Status: {response.status_code}")
                 return False
                 
         except Exception as e:
-            if not silent:
-                print(f"❌ Login error: {e}")
             return False
     
     def claim_gold_xp(self):
         """Claim gold and XP"""
+        if not self.user_id or not self.session_id:
+            if not self.login(silent=True):
+                return {"success": False, "relogin": True}
+        
         url = 'https://gamemodshub.com/game/dragoncity/script/packet'
         
         claim_headers = self.headers.copy()
@@ -114,29 +112,36 @@ class DragonCityBot:
         }
         
         try:
-            response = self.session.post(url, headers=claim_headers, data=payload, timeout=15)
+            response = self.session.post(url, headers=claim_headers, data=payload)
             
             if response.status_code == 200:
-                try:
-                    result = response.json()
-                    
-                    # Check for explicit success
-                    if isinstance(result, dict) and result.get('success') == True:
-                        return {"success": True}
-                    else:
-                        # Any other response is treated as failure
-                        return {"success": False}
-                except:
-                    return {"success": False}
+                result = response.json()
+                
+                if 'success' in result or 'gold' in str(result).lower() or 'xp' in str(result).lower():
+                    self.claim_count += 1
+                    self.total_gold_claimed += 249950
+                    self.total_xp_claimed += 74985
+                    return {"success": True}
+                else:
+                    if self.login(silent=True):
+                        time.sleep(1)
+                        return self.claim_gold_xp()
+                    return {"success": False, "relogin": True}
             else:
-                return {"success": False}
+                return {"success": False, "relogin": True}
                 
         except Exception as e:
-            print(f"❌ Claim error: {e}")
-            return {"success": False}
+            if self.login(silent=True):
+                time.sleep(1)
+                return self.claim_gold_xp()
+            return {"success": False, "relogin": True}
     
     def claim_food(self):
         """Claim 50k food"""
+        if not self.user_id or not self.session_id:
+            if not self.login(silent=True):
+                return {"success": False, "relogin": True}
+        
         url = 'https://gamemodshub.com/game/dragoncity/script/packet'
         
         claim_headers = self.headers.copy()
@@ -176,26 +181,28 @@ class DragonCityBot:
         }
         
         try:
-            response = self.session.post(url, headers=claim_headers, data=payload, timeout=15)
+            response = self.session.post(url, headers=claim_headers, data=payload)
             
             if response.status_code == 200:
-                try:
-                    result = response.json()
-                    
-                    # Check for explicit success
-                    if isinstance(result, dict) and result.get('success') == True:
-                        return {"success": True}
-                    else:
-                        # Any other response is treated as failure
-                        return {"success": False}
-                except:
-                    return {"success": False}
+                result = response.json()
+                
+                if 'success' in result or 'food' in str(result).lower():
+                    self.claim_count += 1
+                    self.total_food_claimed += 50000
+                    return {"success": True}
+                else:
+                    if self.login(silent=True):
+                        time.sleep(1)
+                        return self.claim_food()
+                    return {"success": False, "relogin": True}
             else:
-                return {"success": False}
+                return {"success": False, "relogin": True}
                 
         except Exception as e:
-            print(f"❌ Claim error: {e}")
-            return {"success": False}
+            if self.login(silent=True):
+                time.sleep(1)
+                return self.claim_food()
+            return {"success": False, "relogin": True}
     
     def get_stats(self):
         """Get current statistics"""
@@ -210,7 +217,13 @@ class DragonCityBot:
         }
     
     def start_claiming(self, chat_id, callback, mode='food'):
-        """Start the claiming process"""
+        """Start the claiming process
+        
+        Args:
+            chat_id: Telegram chat ID
+            callback: Callback function for updates
+            mode: 'gold' for gold/XP or 'food' for food
+        """
         self.is_running = True
         self.active_chat_id = chat_id
         self.claim_count = 0
@@ -225,37 +238,24 @@ class DragonCityBot:
         
         def claim_loop():
             while self.is_running:
-                # Attempt claim
                 if self.current_mode == 'gold':
                     result = self.claim_gold_xp()
                 else:
                     result = self.claim_food()
                 
                 if result.get("success"):
-                    # Success! Update counters
-                    self.claim_count += 1
-                    
-                    if self.current_mode == 'gold':
-                        self.total_gold_claimed += 249950
-                        self.total_xp_claimed += 74985
-                    else:
-                        self.total_food_claimed += 50000
-                    
                     # Report every 10 claims
                     if self.claim_count % 10 == 0:
                         callback()
-                else:
-                    # Claim failed - re-login immediately
-                    print("⚠️ Claim failed, re-logging in...")
+                elif result.get("relogin"):
+                    # Notify about re-login attempt
                     callback(relogin=True)
-                    
-                    if self.login(silent=True):
-                        print("✅ Re-login successful")
-                    else:
-                        print("❌ Re-login failed, waiting 5s...")
-                        time.sleep(5)
+                    time.sleep(2)
+                    self.login(silent=True)
+                else:
+                    time.sleep(2)
+                    self.login(silent=True)
                 
-                # Small delay between claims
                 time.sleep(0.5)
         
         thread = Thread(target=claim_loop, daemon=True)
